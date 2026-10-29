@@ -1,0 +1,83 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#04101c"><title>JARVIS</title>
+<style>
+:root{--bg:#04101c;--pn:#0a1f33;--c:#18e0ff;--b:#2b7bff;--t:#dff7ff;--mu:#6f9bb3;--w:#ffb84d}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:radial-gradient(circle at 50% 18%,#0b2b47,var(--bg) 60%);color:var(--t);font:15px/1.45 system-ui,sans-serif;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;gap:8px;padding:8px 12px}
+header b{letter-spacing:.2em;color:var(--c)}#status{margin-left:auto;color:var(--mu);font-size:13px}
+select,button{font:inherit;color:var(--t);background:var(--pn);border:1px solid #17405e;border-radius:10px;padding:6px 10px}
+button.on{border-color:var(--c);color:var(--c)}
+#orbwrap{display:grid;place-items:center;height:150px;flex:none}
+#orb{width:104px;height:104px;border-radius:50%;border:2px solid var(--c);box-shadow:0 0 28px var(--b),inset 0 0 28px var(--b);background:radial-gradient(circle,#18e0ff55,#0000 70%);position:relative}
+#orb:before,#orb:after{content:"";position:absolute;inset:-14px;border-radius:50%;border:1px dashed #18e0ff77;animation:spin 14s linear infinite}
+#orb:after{inset:-28px;border-style:dotted;animation-duration:22s;animation-direction:reverse}
+body[data-s=listening] #orb{animation:pulse 1s infinite;border-color:var(--w);box-shadow:0 0 36px var(--w)}
+body[data-s=thinking] #orb:before{animation-duration:2s}
+body[data-s=speaking] #orb{animation:pulse .5s infinite}
+@keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{transform:scale(1.12)}}
+@media(prefers-reduced-motion:reduce){#orb,#orb:before,#orb:after{animation:none!important}}
+#log{flex:1;overflow:auto;padding:8px 12px;display:flex;flex-direction:column;gap:8px}
+.m{max-width:86%;padding:8px 12px;border-radius:14px;white-space:pre-wrap;word-break:break-word}
+.user{align-self:flex-end;background:#12406b}.assistant{align-self:flex-start;background:var(--pn);border:1px solid #17405e}
+.sys{align-self:center;color:var(--w);font-size:13px;text-align:center}
+.m a{color:var(--c)}.m small{display:block;color:var(--mu);margin-top:4px}
+.act{display:flex;gap:6px;margin-top:6px}.act button{border-color:var(--c)}
+footer{display:flex;gap:8px;align-items:center;padding:8px 12px}
+#txt{flex:1;background:var(--pn);color:var(--t);border:1px solid #17405e;border-radius:20px;padding:10px 14px;font:inherit;min-width:0}
+#mic{width:60px;height:60px;border-radius:50%;border:0;font-size:26px;background:radial-gradient(circle,var(--c),var(--b));box-shadow:0 0 20px var(--c);color:#02101c}
+:focus-visible{outline:2px solid var(--c);outline-offset:2px}
+</style></head><body data-s="idle">
+<header><b>JARVIS</b><select id="lang" aria-label="Speech language"><option value="en-IN">English / Hinglish</option><option value="hi-IN">हिन्दी</option></select>
+<button id="conv" title="Keep listening after each reply">Chat mode</button><button id="web" title="Use web search">Web</button><button id="menu">⋮</button><span id="status">Ready</span></header>
+<div id="orbwrap"><div id="orb"></div></div><div id="log" aria-live="polite"></div>
+<footer><input id="txt" placeholder="Type or tap the mic…" autocomplete="off"><button id="mic" aria-label="Speak">🎙</button></footer>
+<script>
+const $=s=>document.querySelector(s),B=document.body;
+let hist=JSON.parse(localStorage.jh||'[]'),mem=JSON.parse(localStorage.jm||'[]'),conv=false,web=false,rec;
+const save=()=>{localStorage.jh=JSON.stringify(hist.slice(-40));localStorage.jm=JSON.stringify(mem)};
+const state=(s,t)=>{B.dataset.s=s;$('#status').textContent=t};
+function add(role,text,node){const d=document.createElement('div');d.className='m '+role;d.textContent=text;if(node)d.append(node);$('#log').append(d);d.scrollIntoView();return d}
+function action(label,url,text){const w=document.createElement('div');w.className='act';const b=document.createElement('button');b.textContent=label;
+ b.onclick=()=>{location.href=url;b.disabled=true;b.textContent='Sent to Android. If nothing opened, the app may be missing.'};w.append(b);add('assistant',text,w)}
+function speak(t,done){if(!window.speechSynthesis){done&&done();return}speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t.replace(/[*#`_]/g,''));
+ u.lang=/[\u0900-\u097F]/.test(t)?'hi-IN':'en-IN';u.onstart=()=>state('speaking','Speaking');u.onend=u.onerror=()=>{state('idle','Ready');done&&done()};speechSynthesis.speak(u)}
+function say(t,extra){add('assistant',t,extra);speak(t,()=>conv&&listen())}
+const apps={youtube:'com.google.android.youtube',whatsapp:'com.whatsapp',instagram:'com.instagram.android',gmail:'com.google.android.gm',maps:'com.google.android.apps.maps',chrome:'com.android.chrome',spotify:'com.spotify.music'};
+const intent=p=>`intent://#Intent;package=${p};end`;
+function local(t){const l=t.toLowerCase().trim();let m;
+ if(/^(what('| i)?s the )?time\b|samay|kitne baje/.test(l))return say(new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})),1;
+ if(/\bdate\b|aaj kya tarikh|today'?s date/.test(l))return say(new Date().toDateString()),1;
+ if(m=l.match(/^(?:open|kholo|khol)\s+(\w+)/)){const p=apps[m[1]];if(p)return action('Open '+m[1],intent(p),'Ready to open '+m[1]+'. Tap to confirm.'),1}
+ if(m=t.match(/^(?:call|phone)\s+(\+?[\d\s-]{6,})/i)){const n=m[1].replace(/[\s-]/g,'');return action('Dial '+n,'tel:'+n,'Opening the dialer for '+n+'. You press call.'),1}
+ if(m=t.match(/^(?:sms|text|message)\s+(\+?\d[\d\s-]{5,}?)\s+(.+)/i)){const n=m[1].replace(/[\s-]/g,'');return action('Review SMS to '+n,'sms:'+n+'?body='+encodeURIComponent(m[2]),'Draft ready: "'+m[2]+'". You review and press send.'),1}
+ if(m=t.match(/^(?:navigate|directions|take me)\s+(?:to\s+)?(.+)/i))return action('Start navigation','https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(m[1]),'Navigation to '+m[1]+' ready.'),1;
+ if(m=t.match(/^(?:google|search web for|search)\s+(.+)/i)&&!web)return action('Search Google','https://www.google.com/search?q='+encodeURIComponent(m[1]),'Search ready for "'+m[1]+'".'),1;
+ if(m=t.match(/^remember(?: that)?\s+(.+)/i)){const a=document.createElement('div');a.className='act';const y=document.createElement('button');y.textContent='Save it';
+  y.onclick=()=>{mem.push(m[1]);save();y.disabled=true;y.textContent='Saved on this phone'};a.append(y);add('assistant','Save this preference on this device? "'+m[1]+'"',a);return 1}
+ if(/^(clear|reset) (chat|history)/.test(l))return clearChat(),1;
+ return 0}
+async function ask(t){state('thinking','Thinking…');
+ try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','x-app-token':localStorage.jt||''},body:JSON.stringify({messages:hist,memory:mem,web})});
+  const j=await r.json().catch(()=>({}));
+  if(r.status===401){const k=prompt('Enter your access token');if(k){localStorage.jt=k;return ask(t)}}
+  if(!r.ok)throw new Error(j.error||'Server error '+r.status);
+  hist.push({role:'assistant',content:j.reply});save();let n;
+  if(j.sources&&j.sources.length){n=document.createElement('small');n.append('Web-sourced: ');j.sources.forEach((s,i)=>{const a=document.createElement('a');a.href=s.url;a.target='_blank';a.rel='noopener';a.textContent='['+(i+1)+'] '+s.title.slice(0,30);n.append(a,' ')})}
+  else if(web){n=document.createElement('small');n.textContent='No web results; this is an AI-generated answer.'}
+  say(j.reply,n)}
+ catch(e){state('idle','Ready');add('sys',navigator.onLine?'AI unavailable: '+e.message+'. Basic commands still work.':'You are offline. Basic commands (time, call, SMS, open apps) still work.')}}
+function send(t){t=t.trim();if(!t)return;add('user',t);hist.push({role:'user',content:t});save();if(local(t))return;ask(t)}
+function listen(){const R=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!R)return add('sys','Speech recognition needs Chrome on Android. You can still type.');
+ speechSynthesis.cancel();rec=new R();rec.lang=$('#lang').value;rec.onstart=()=>state('listening','Listening…');
+ rec.onresult=e=>send(e.results[0][0].transcript);
+ rec.onerror=e=>{state('idle','Ready');conv=false;$('#conv').classList.remove('on');add('sys',e.error==='not-allowed'?'Microphone blocked. Allow it in Chrome site settings (needs https or localhost).':'Mic error: '+e.error)};
+ rec.onend=()=>{if(B.dataset.s==='listening')state('idle','Ready')};try{rec.start()}catch{}}
+function clearChat(){hist=[];save();$('#log').innerHTML='';add('sys','Chat cleared.')}
+$('#mic').onclick=listen;$('#txt').onkeydown=e=>{if(e.key==='Enter'){send(e.target.value);e.target.value=''}};
+$('#conv').onclick=e=>{conv=!conv;e.target.classList.toggle('on',conv)};$('#web').onclick=e=>{web=!web;e.target.classList.toggle('on',web)};
+$('#menu').onclick=()=>{const c=prompt('1 = clear chat\n2 = clear saved preferences\n3 = list saved preferences');
+ if(c==='1')clearChat();if(c==='2'){mem=[];save();add('sys','Preferences cleared.')}if(c==='3')add('sys',mem.join('\n')||'Nothing saved.')};
+hist.forEach(m=>add(m.role,m.content));if(!hist.length)add('sys','Say "open youtube", "call 9876543210", "navigate to Connaught Place", or ask anything.');
+</script></body></html>
